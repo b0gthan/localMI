@@ -9,10 +9,13 @@ DECLARE @FullPath NVARCHAR(1000),
 		@AHDatabaseName varchar(50),
 		@FilePath varchar(max),
 		@ReturnCode int
+		, @AllOrNothing INT
 		, @SQL VARCHAR(MAX)
+		, @CHECK INT, @ALREADY_RAN NVARCHAR(MAX)
+		, @ERROR_ON_BATCH INT
 
 DECLARE @Dir NVARCHAR(1000) ;
-SELECT  @Dir = N'c:\DBBackUp\UserRevamp\' ;
+--SELECT  @Dir = N'c:\DBBackUp\UserRevamp\' ;
 
 SET @ServerName = '$(ServerName)'
 SET @UserName = '$(Username)'
@@ -20,8 +23,11 @@ SET @Password = '$(Password)'
 SET @MIDatabaseName = '$(MIDatabaseName)'
 SET @AHDatabaseName = '$(AHDatabaseName)'
 SET @FilePath = '$(File_Path)'
+SET @AllOrNothing  = '$(AllOrNothing)' 
 
 SET @Dir = @FilePath
+SET @ERROR_ON_BATCH = 0
+
 
 IF RIGHT(@Dir, 1) <> '\' 
 	SELECT  @Dir = @Dir + '\' ;
@@ -163,6 +169,8 @@ INSERT INTO @RunnableStatements ([FullPath], [Path], [FileName])
 
 SET @ScriptsToRun = SCOPE_IDENTITY()
 
+BEGIN TRANSACTION main
+
 WHILE(@CurrentId <= @ScriptsToRun)
 BEGIN
 	SELECT @FullPath = FullPath, 
@@ -174,29 +182,35 @@ BEGIN
 
 	IF @FileName is not null and @FileName <> ''
 	BEGIN
-		PRINT 'Start running script ' + @FileName + ' on database ' + (CASE WHEN LEFT(@FileName, 2) = 'MI' THEN @MIDatabaseName WHEN LEFT(@FileName, 2) = 'AH' THEN @AHDatabaseName ELSE ' unknown database - script wil not be ran!!!' END)
+
+		SET @ALREADY_RAN = N'SET @CHECK = ISNULL((SELECT TOP 1 1 FROM [' + (CASE WHEN LEFT(@FileName, 2) = 'MI' THEN @MIDatabaseName WHEN LEFT(@FileName, 2) = 'AH' THEN @AHDatabaseName END) + '].dbo.UTILS_DB_SCRIPTS WHERE SCRIPT_NAME = ''' + @FileName  + '''), 0)'
+		EXEC sp_executesql @ALREADY_RAN, N'@CHECK INT OUTPUT', @CHECK=@CHECK OUTPUT;
+
+		PRINT 'Start running script <<' + @FileName + '>> on ' 
+				+ (CASE WHEN LEFT(@FileName, 2) = 'MI' THEN @MIDatabaseName WHEN LEFT(@FileName, 2) = 'AH' THEN @AHDatabaseName ELSE ' unknown database - script wil not be ran!!!' END) + '.'
+				+ (CASE WHEN LEFT(@FileName, 2) IN ('MI', 'AH') AND @CHECK = 1 THEN ' Script already ran!!!' ELSE '' END)
 
 		SET @SqlStatement = 'exec @ReturnCode = master.dbo.xp_cmdshell ''osql -S ' + @ServerName + ' -U ' + @Username + ' -P ' + @Password + ' -d ' + (CASE WHEN LEFT(@FileName, 2) = 'MI' THEN @MIDatabaseName WHEN LEFT(@FileName, 2) = 'AH' THEN @AHDatabaseName END) + ' -b -i "' + @FullPath + '"'''       
-		PRINT @SqlStatement
-		IF LEFT(@FileName, 2) = 'MI' OR LEFT(@FileName, 2) = 'AH'
+		--PRINT @SqlStatement
+		IF (LEFT(@FileName, 2) = 'MI' OR LEFT(@FileName, 2) = 'AH') AND @CHECK = 0
 			BEGIN
-				BEGIN TRANSACTION
+				BEGIN TRANSACTION secondary
 				EXECUTE sp_executesql @SqlStatement, N'@ReturnCode int output', @ReturnCode = @ReturnCode OUTPUT
          
 				IF @ReturnCode <> 0
 					BEGIN
 						PRINT 'Failed to execute: ' + @Filename
-						ROLLBACK TRANSACTION
+						ROLLBACK TRANSACTION secondary
+						SET @ERROR_ON_BATCH = 1
 					END
 				ELSE
 					BEGIN
 						PRINT 'Script ' + @FileName + ' ran successfully'
 						SET @SQL = 'INSERT INTO [' + (CASE WHEN LEFT(@FileName, 2) = 'MI' THEN @MIDatabaseName WHEN LEFT(@FileName, 2) = 'AH' THEN @AHDatabaseName END) + '].dbo.UTILS_DB_SCRIPTS(SCRIPT_NAME, RUN_AT) VALUES(''' + @FileName  + ''', GETDATE())'
 						EXEC(@SQL)
-						COMMIT TRANSACTION
+						COMMIT TRANSACTION secondary
 					END
-			END
-			
+			END			
 	END 
 
 	UPDATE rs
@@ -206,3 +220,14 @@ BEGIN
 
 	SET @CurrentId = @CurrentId + 1
 END
+
+
+IF @AllOrNothing = 1 AND @ERROR_ON_BATCH = 1
+	BEGIN
+		PRINT 'At least one script failed, rolling back everything!'
+		ROLLBACK TRANSACTION main
+	END
+ELSE
+	BEGIN
+		COMMIT TRANSACTION main
+	END
