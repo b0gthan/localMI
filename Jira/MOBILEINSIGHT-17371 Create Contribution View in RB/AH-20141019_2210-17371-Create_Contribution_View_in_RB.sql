@@ -4,7 +4,11 @@ Create Contribution View in RB
 ***************************************
 Auth: Bogdan Lazarescu
 Date: 20141019
+<<<<<<< HEAD
 Database: MI
+=======
+Database: AH
+>>>>>>> origin/master
 **************************************/
 
 --insert

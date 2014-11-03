@@ -31,23 +31,32 @@ FROM ContributionHistory CH
 SELECT DATEADD(month, DATEDIFF(month, 0, GETDATE()), 0)
 
 
-DECLARE @P_OrgId INT, @P_UserId INT
-SELECT @P_OrgId = 11, @P_UserId = 283
 
-SELECT u.UserName "Username",   u.FirstName "First name",   u.LastName "Last name", urf.BusinessRoleName "User hierarchy name",   u_mgr.UserName "Manager Username",   u_mgr.FirstName "Manager First name",   u_mgr.LastName "Manager Last name", br_mgr.BusinessRoleName "Manager User hierarchy name", CH.Contribution, CH.VisitGoal AS "Visit Goal", CH.VisitGoalMTD AS "Visit Goal MTD", CH.ActualVisits AS "Actual Visit", CH.AverageVisitLenght AS "Average Visit Lenght", CH.OutOfOffice AS "Out Of Office"
-	, DATEADD(month, DATEDIFF(month, 0, GETDATE()), 0) AS "Start of the month", GETDATE() AS "Today"
+--select * from UserOrgProfile
+--select * from Users
+--select * from businessrole
+--select * from Downline_NoTestData(22, 2138) urf
+DECLARE @P_OrgId INT, @P_UserId INT
+SELECT @P_OrgId = 22, @P_UserId = 2138
+
+SELECT u.UserName "Username",   u.FirstName "First name",   u.LastName "Last name", urf.BusinessRoleName "User’s Role", u.isActive AS "Is Active"
+	,   u_mgr.UserName "Manager Username",   u_mgr.FirstName "Manager First name",   u_mgr.LastName "Manager Last name", br_mgr.BusinessRoleName "Manager’s Role", CH.Contribution
+	, CH.VisitGoal AS "Visit Goal", CH.VisitGoalMTD AS "Visit Goal MTD", CH.ActualVisits AS "Actual Visit", CH.AverageVisitLenght AS "Average Visit Length", CH.OutOfOffice AS "Out Of Office"
+	, DATEADD(month, DATEDIFF(month, 0, GETDATE()), 0) AS "Start of the month", DATEADD(d, -1, GETDATE()) AS "Yesterday"
 FROM Downline_NoTestData(@P_OrgId, @P_UserId) urf
 	INNER JOIN users u on urf.userid = u.userId  
-	INNER JOIN users u_mgr on u_mgr.userid = urf.UserParentId
+	left join userorgprofile uop on uop.userid = u.userid and uop.orgid = @P_OrgId
+	left join businessrole br on br.BusinessRoleId = uop.BusinessRoleId
+	LEFT JOIN users u_mgr on u_mgr.userid = urf.UserParentId
 	left join userorgprofile uop_mgr on uop_mgr.userid = u_mgr.userid and uop_mgr.orgid = @P_OrgId
-	left join businessrole br_mgr on br_mgr.BusinessRoleId = uop_mgr.BusinessRoleId     --sales goals details   
-	INNER JOIN (SELECT CH.UserId, CH.OrgId, Contribution, VisitGoal, VisitGoalMTD, ActualVisits, AverageVisitLenght, OutOfOffice
+	left join businessrole br_mgr on br_mgr.BusinessRoleId = uop_mgr.BusinessRoleId
+	LEFT JOIN (SELECT CH.UserId, CH.OrgId, Contribution, VisitGoal, VisitGoalMTD, ActualVisits, AverageVisitLenght, OutOfOffice
 				FROM ContributionHistory CH
 					INNER JOIN (SELECT UserId, OrgID, MAX(CreatedDate) AS CreatedDate 
 						FROM ContributionHistory 
 						WHERE YEAR(CreatedDate) = YEAR(GETDATE()) AND MONTH(CreatedDate) = MONTH(GETDATE()) 
 						GROUP BY UserId, OrgID) CH_G ON CH.UserId = CH_G.UserId AND CH.OrgId = CH_G.OrgId AND CH.CreatedDate = CH_G.CreatedDate) CH ON URF.UserId = CH.UserId AND CH.OrgId = @P_OrgId
-
+WHERE BR.BusinessRoleType = 8
 
 --insert
 DECLARE @OBJECT_ID INT
