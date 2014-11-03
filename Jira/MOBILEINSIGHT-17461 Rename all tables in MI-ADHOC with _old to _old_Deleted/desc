@@ -1,0 +1,2 @@
+MOBILEINSIGHT-17461
+Rename all tables in MI-ADHOC with "_old" to "_old_Deleted"
